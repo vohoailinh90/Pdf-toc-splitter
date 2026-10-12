@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pdf-toc-splitter"
+version = "0.1.0"
+description = "Split PDFs by their table of contents and name files after section titles"
+requires-python = ">=3.10"
+dependencies = ["pypdf>=5,<7"]
+
+[project.scripts]
+pdf-toc-splitter = "pdf_toc_splitter.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["pdf_toc_splitter*"]

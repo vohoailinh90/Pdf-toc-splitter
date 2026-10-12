@@ -1,0 +1,32 @@
+The 9 Algorithms That Dominate Our World....8
+How does gRPC work?....12
+Docker vs. Kubernetes. Which one should we use?....14
+What happens when you type google .com into a browser?....18
+A Cheatsheet on Infrastructure as Code Landscape....20
+A Crash Course on Architectural Scalability....22
+The Open Source AI Stack....24
+Cookies Vs Sessions Vs JWT Vs PASETO....26
+How TikTok Manages a 200K File Frontend MonoRepo?....28
+The Ultimate API Learning Roadmap....30
+30 Useful AI Apps That Can Help You in 2025....32
+10 Essential Components of a Production Web Application....34
+Session, Cookie, JWT, Token, SSO, and OAuth 2.0 Explained in One Diagram....36
+DeepSeek 1-Pager....38
+My Favorite 10 Books for Software Developers....40
+What is an AI Agent?....42
+Git vs GitHub....44
+A Cheatsheet on Database Performance....46
+18 Common Ports Worth Knowing....48
+Generative Adversarial Network (GAN) - AI by Hand ✍️....50
+JWT 101: Key to Stateless Authentication....51
+A handy cheat sheet for the most popular cloud services....53
+0 to 1.5 Billion Guests: Airbnb’s Architectural Evolution....57
+12 Algorithms for System Design Interviews....59
+How Kubernetes Works?....61
+PostgreSQL 101: The Everything Database....63
+Top 12 Tips for API Security....65
+24 Good Resources to Learn Software Architecture in 2025....67
+SQS vs SNS vs EventBridge vs Kinesis....69
+Top 5 common ways to improve API performance....71
+xAI’s Grok-3 One-Pager....73
+30 Free APIs for Developers....75
