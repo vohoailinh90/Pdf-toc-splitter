@@ -1,0 +1,562 @@
+version: 2
+name: claude-agent-execution-profile-policy
+
+scoring:
+  dimensions:
+    - ambiguity
+    - scope
+    - architecture
+    - dependencies
+    - risk
+    - verification
+  allowed_values: [0, 1, 2]
+  raw_score_range: [0, 12]
+
+score_tiers:
+  - tier: T0
+    name: trivial
+    min_score: 0
+    max_score: 2
+  - tier: T1
+    name: standard
+    min_score: 3
+    max_score: 5
+  - tier: T2
+    name: complex
+    min_score: 6
+    max_score: 8
+  - tier: T3
+    name: critical
+    min_score: 9
+    max_score: 12
+
+# Every profile is main-session-first. The main session carries requirement
+# analysis, architecture and implementation; subagents exist only to provide
+# what the main session structurally cannot provide itself — independent
+# judgement on work it already did.
+#
+# `required_agents` is the floor. `max_agent_invocations` in `budget` is the
+# ceiling, and it is not advisory: exceeding it is a policy violation, not a
+# judgement call.
+profiles:
+  T0:
+    strategy: main_session
+    main_session_owns: [analysis, implementation, verification]
+    required_agents: []
+    conditional_agents: []
+    independent_review: false
+    independent_test: false
+    max_architecture_critique_rounds: 0
+
+  T1:
+    strategy: main_with_reviewer
+    main_session_owns: [analysis, implementation]
+    required_agents:
+      - code-reviewer
+    conditional_agents: []
+    independent_review: true
+    independent_test: false
+    max_architecture_critique_rounds: 0
+
+  T2:
+    strategy: main_with_architect_and_reviewer
+    main_session_owns: [analysis, architecture, implementation]
+    required_agents:
+      - code-reviewer
+    # Two independently-sufficient entries, not one combined condition: either
+    # arm alone fires the architect (OR, never AND). A single entry carrying
+    # both a threshold and a signal list reads ambiguously as "both must
+    # hold"; splitting them into separate list entries makes OR the only
+    # possible reading, and lets each arm be exercised by its own fixture
+    # (see ConditionArmIndependenceTests).
+    conditional_agents:
+      - agent: architect
+        when_architecture_dimension_at_least: 2
+      - agent: architect
+        when_any_signal:
+          - changes-service-contract
+          - changes-event-contract
+          - changes-storage-ownership
+          - changes-canonical-model
+    independent_review: true
+    independent_test: true
+    max_architecture_critique_rounds: 0
+
+  T3:
+    strategy: main_with_critic_and_reviewer
+    main_session_owns: [analysis, architecture, implementation]
+    required_agents:
+      - architecture-critic
+      - code-reviewer-t3
+    conditional_agents:
+      - agent: requirement-analyst
+        when_ambiguity_dimension_at_least: 2
+        note: >-
+          Fires before architecture begins on ambiguity-2 T3 work (identity/
+          auth model migrations, cross-service ownership migrations). The
+          critic reviews a design the main session already authored; the
+          analyst is what keeps an open product decision from silently
+          becoming a technical assumption before that design is written, and
+          the critic cannot structurally substitute for it. Consumes
+          budget.analyst_reserve.T3 in addition to the base T3 ceiling.
+    independent_review: true
+    independent_test: true
+    max_architecture_critique_rounds: 1
+    critique_round_2:
+      allowed_when: unresolved_critical_or_high_findings
+      mechanism: resume_existing_critic
+      note: >-
+        Round 2 must resume the round-1 critic so it keeps its context. Spawning
+        a second critic makes round 2 cost more than round 1 and is forbidden.
+
+# Roles that exist but that no tier spawns by default. They are invoked only
+# when the main session deliberately escalates, so they cost nothing on a
+# requirement that does not need them.
+#
+# `code-reviewer-verify` is the reviewer slot at a wider ceiling (24 turns,
+# high effort) for a review whose remit is known to be probe-heavy. It is
+# listed here rather than given an automatic trigger because the evidence does
+# not support one: the two reviews that exhausted their ceiling did so on
+# mutation checking (now scripts/mutation_check.py, per deterministic_work
+# below) and on diff size, which is not knowable at classification time. A
+# `verification >= 2` trigger would have moved a third of the eval corpus onto
+# the most expensive reviewer on a hunch, which is the cost this repository
+# exists to avoid.
+#
+# When escalated it SUBSTITUTES for the tier's reviewer, filling the one slot
+# the profile already requires. It is never invoked alongside code-reviewer or
+# code-reviewer-t3, and it does not raise max_agent_invocations.
+# `architect` is deliberately NOT here: profiles.T2.conditional_agents spawns it
+# automatically. It is escalation-only at T3 alone, which is a per-tier fact and
+# not the repository-wide claim this list makes.
+escalation_only_agents:
+  - agent: implementer
+  - agent: test-engineer
+  - agent: code-reviewer-verify
+    substitutes_for: [code-reviewer, code-reviewer-t3]
+    invocation_cost: 0
+
+# A lane is WHO executes a tier, never how hard the work is. The tier, every
+# override that raised it and every reserve are resolved first, identically in
+# every lane; a lane cannot lower any of them. `claude` is `profiles` above and
+# is the default. `codex` moves design, implementation and the adversarial
+# critique to Codex Cloud — Codex writes the code, and a separate `@codex
+# review` run critiques it — through docs/claude-to-codex.md and nothing else.
+# Process and rationale: docs/codex-lane.md.
+#
+# A step that `replaces` a Claude agent runs exactly when the claude lane would
+# have required that agent for the same scores and signals, and that agent
+# leaves the Claude roster. The condition is not restated here, so the two
+# lanes cannot drift: the T2 architect's two arms decide the Codex design step
+# too. A step with `when_override` runs when that override applied. Any other
+# step always runs.
+#
+# Independence: the Codex review run is a fresh context that did not write
+# the code, but the same model family. The cross-model reading is the main
+# session's own §14 validation — it never writes the code in this lane. At T3
+# the design critique is same-family too, a deliberate downgrade from
+# architecture-critic and the point of the lane; T3 therefore keeps a Claude
+# verifier, because a Codex review reads a diff and T3 verification is
+# integration, migration, security and rollback evidence that must be run.
+# docs/codex-lane.md says what the lane gives up.
+lanes:
+  default: claude
+  codex:
+    # Codex Cloud, reached only through `@codex` GitHub comments.
+    runner: cloud
+    protocol: docs/claude-to-codex.md
+    process: docs/codex-lane.md
+    # The operator's choice (Codex Cloud enabled for the repository, a linked
+    # account with quota), never the classifier's: nothing in a requirement's
+    # text says whether Codex is connected. scripts/route.py takes it as --lane.
+    selected_by: operator
+    # Main-session only in every lane: a GitHub round trip costs more than a
+    # T0 change.
+    unavailable_tiers: [T0]
+    # docs/claude-to-codex.md section 16, copied so the resolver and
+    # scripts/codex_task.py can refuse a plan or a post past them; the test
+    # suite ties these numbers to that section. IMPLEMENT is one round:
+    # corrections to an implementation are FIX rounds on its PR (section 13),
+    # and a stalled or failed IMPLEMENT is BLOCKED (section 17), never reposted.
+    # `review: null` is no limit -- the repository owner removed the cap of three
+    # on 2026-10-12; a review command is bounded by running once per head SHA instead.
+    round_caps:
+      BRAINSTORM: 2
+      IMPLEMENT: 1
+      FIX: 2
+      review: null
+    # Claude subagent ceilings in this lane. Reserves in `budget` apply unchanged.
+    max_agent_invocations:
+      T1: 0
+      T2: 0
+      T3: 1
+    profiles:
+      T1:
+        strategy: codex_implements_codex_reviews
+        claude_agents: []
+        codex_steps:
+          - step: implement
+            mode: IMPLEMENT
+            post_on: issue
+          - step: review
+            command: review
+            post_on: pull_request
+            replaces: code-reviewer
+
+      T2:
+        strategy: codex_architect_codex_reviewer
+        claude_agents: []
+        codex_steps:
+          - step: design
+            mode: BRAINSTORM
+            round: 1
+            post_on: issue
+            replaces: architect
+          - step: implement
+            mode: IMPLEMENT
+            post_on: issue
+          - step: review
+            command: review
+            post_on: pull_request
+            replaces: code-reviewer
+          - step: security-review
+            command: security review
+            post_on: pull_request
+            when_override: security-sensitive
+
+      T3:
+        strategy: codex_architect_codex_critic_claude_verifier
+        claude_agents:
+          - code-reviewer-t3
+        codex_steps:
+          - step: design
+            mode: BRAINSTORM
+            round: 1
+            post_on: issue
+          # Round 2 of the same BRAINSTORM task, posted only after the main
+          # session has validated round 1 (section 16's read-only correction
+          # round): a fresh Codex run that did not write the proposal
+          # challenges it. One round, as the claude lane's critic gets one.
+          - step: design-critique
+            mode: BRAINSTORM
+            round: 2
+            post_on: issue
+            replaces: architecture-critic
+          - step: implement
+            mode: IMPLEMENT
+            post_on: issue
+          - step: review
+            command: review
+            post_on: pull_request
+          - step: security-review
+            command: security review
+            post_on: pull_request
+            when_override: security-sensitive
+
+  # The same tiers run by the Codex CLI on the operator's own machine instead
+  # of Codex Cloud: no GitHub round trip, no Codex Cloud task, and the only
+  # path to Codex is scripts/codex_cli.py, which picks the sandbox from the
+  # mode and enforces the caps below in a local ledger. Independent of the
+  # free-model team pipeline (scripts/team/, docs/vps-team.md): neither reads
+  # the other's files. Process: docs/codex-cli-lane.md.
+  #
+  # The roster is the codex lane's, for the same reasons: the Codex review is
+  # a fresh context but the same model family, so T3 keeps code-reviewer-t3.
+  # `sandbox` replaces `post_on`: read-only for every step that must not write,
+  # workspace-write (network off) for the steps that do, never
+  # danger-full-access.
+  codex-cli:
+    runner: cli
+    protocol: docs/codex-cli-lane.md
+    process: .claude/skills/codex-cli-lane/SKILL.md
+    selected_by: operator
+    unavailable_tiers: [T0]
+    # Kept equal to the codex lane's (section 16 of docs/claude-to-codex.md)
+    # so switching lanes never changes how many rounds a requirement gets.
+    # `review: null` is no limit, as in the codex lane.
+    round_caps:
+      BRAINSTORM: 2
+      IMPLEMENT: 1
+      FIX: 2
+      review: null
+    max_agent_invocations:
+      T1: 0
+      T2: 0
+      T3: 1
+    profiles:
+      T1:
+        strategy: codex_cli_implements_codex_cli_reviews
+        claude_agents: []
+        codex_steps:
+          - step: implement
+            mode: IMPLEMENT
+            sandbox: workspace-write
+          - step: review
+            command: review
+            sandbox: read-only
+            replaces: code-reviewer
+
+      T2:
+        strategy: codex_cli_architect_codex_cli_reviewer
+        claude_agents: []
+        codex_steps:
+          - step: design
+            mode: BRAINSTORM
+            round: 1
+            sandbox: read-only
+            replaces: architect
+          - step: implement
+            mode: IMPLEMENT
+            sandbox: workspace-write
+          - step: review
+            command: review
+            sandbox: read-only
+            replaces: code-reviewer
+          - step: security-review
+            command: security review
+            sandbox: read-only
+            when_override: security-sensitive
+
+      T3:
+        strategy: codex_cli_architect_codex_cli_critic_claude_verifier
+        claude_agents:
+          - code-reviewer-t3
+        codex_steps:
+          - step: design
+            mode: BRAINSTORM
+            round: 1
+            sandbox: read-only
+          - step: design-critique
+            mode: BRAINSTORM
+            round: 2
+            sandbox: read-only
+            replaces: architecture-critic
+          - step: implement
+            mode: IMPLEMENT
+            sandbox: workspace-write
+          - step: review
+            command: review
+            sandbox: read-only
+          - step: security-review
+            command: security review
+            sandbox: read-only
+            when_override: security-sensitive
+
+# Hard ceilings. These are the difference between a policy that expresses a
+# preference and a policy that enforces one.
+budget:
+  max_agent_invocations:
+    T0: 0
+    T1: 1
+    T2: 2
+    T3: 3
+  # Requirement-analyst runs before architecture, not after review, so it is
+  # a separate reserve from escalation_reserve below: an ambiguity-2 T3
+  # requirement knows it needs the analyst before any design exists, while
+  # escalation_reserve is only discovered once the reviewer has read a diff.
+  # The two are independent and may both fire on the same requirement.
+  analyst_reserve:
+    T3: 1
+    grant_condition: ambiguity_dimension_at_least_2
+    grantable_agents: [requirement-analyst]
+    note: >-
+      One additional invocation, available only when the requirement scores
+      ambiguity 2 and profiles.T3.conditional_agents fires
+      requirement-analyst before architecture begins. Combined with
+      escalation_reserve below, a requirement that is both ambiguous and
+      later found to need designed verification can reach 3 base + 1 analyst
+      + 1 escalation = 5 total; reporting must distinguish base consumption
+      from each reserve's consumption rather than presenting one number.
+  # A T3 worst case spends all three base slots on critique alone: critic,
+  # resumed critic for round 2, then the mandatory reviewer. A T2 worst case
+  # spends both base slots the same way, on the conditional architect plus
+  # the mandatory reviewer. In either case, if that reviewer then escalates
+  # for verification design, as code-reviewer/code-reviewer-t3 is instructed
+  # to do, the escalation would be one invocation past the ceiling and the
+  # requirement could never reach its own definition of done. This reserve
+  # exists only for that path; it is not a general extra slot, and it is
+  # never available at T0-T1: T0 does no independent verification, and T1's
+  # risk domains are already forced to T2+ by the overrides above, so no T1
+  # case can produce the finding this reserve exists to unblock.
+  escalation_reserve:
+    T2: 1
+    T3: 1
+    grant_condition: reviewer_formally_escalated_for_verification_design
+    grantable_agents: [test-engineer]
+    note: >-
+      One additional invocation, available only after the tier's reviewer
+      (code-reviewer at T2, code-reviewer-t3 at T3) has reported that
+      verification needs its own design work (failure injection, migration
+      rehearsal, concurrency harness). It may not be spent on another
+      critique/architecture round.
+  max_concurrent_subagents: 2
+  max_subagent_spawn_depth: 1
+  max_artifact_lines:
+    architecture: 200
+    critique: 80
+    plan: 120
+    review: 120
+  artifact_overflow_rule: >-
+    An artifact that would exceed its cap must be cut down, not split into
+    additional files. Every downstream agent reads these artifacts, so artifact
+    length multiplies across the roster.
+  enforcement: >-
+    max_agent_invocations counts every subagent invocation for the requirement,
+    including resumed agents and any agent a subagent spawns. Reaching the
+    ceiling with work outstanding is an escalation signal: report the partial
+    result and the remaining risk rather than spawning past the cap.
+
+# Work whose correct answer is computable is not a judgement task. Routing it
+# to a model costs tokens and is less reliable than the deterministic check.
+deterministic_work:
+  never_delegate_to_agents:
+    - counting records, rows, files or diff lines
+    - hash, checksum and fingerprint comparison
+    - schema or contract conformance that a validator can assert
+    - presence, expiry or referential-integrity checks over known data
+    - lint, format, type and test execution whose output is already a verdict
+  required_form: a script or CI check in the repository
+  rationale: >-
+    A model asked to compare two SHA-256 values can be wrong. A script cannot.
+    Prefer adding the check to the repository over adding a role to the roster.
+
+# Signals name what the change DOES, not what the requirement mentions.
+# A requirement that reads a payment record is not a payment change; a
+# requirement that reads a lineage field is not a lineage migration.
+signal_taxonomy:
+  form: verb-first action performed by the change
+  read_only_exempt:
+    - reads-authenticated-context
+    - reads-authorization-rule
+    - reads-secret-config
+    - reads-payment-record
+    - reads-ledger
+    - reads-schema
+    - reads-lineage
+    - reads-derived-from
+    - reads-audit-log
+    - reads-pii
+    - uses-existing-migration
+    - calls-existing-service-contract
+  exemption_rule: >-
+    A read-only signal never raises a tier and never appears in an override
+    match. It may still raise the risk or verification dimension on its own
+    merit — that path goes through scoring, where it can be weighed, rather
+    than through an override, where it cannot.
+
+# exposes-sensitive-record closes the gap the read-only exemption otherwise
+# leaves open: reading a payment, ledger, audit-log or lineage record is
+# exempt (`read_only_exempt` above), but returning one of those records to a
+# new audience through a new endpoint or report is an action, not a read.
+# Without this signal, an information-disclosure requirement built entirely
+# from exempt reads plus a low complexity score can route to T1.
+#
+# None of these T2-minimum overrides carries its own `require_agents`. Every
+# tier at or above T2 already requires an independent reviewer in its own
+# profile (`code-reviewer` at T1/T2, `code-reviewer-t3` at T3) — an override
+# repeating that name adds nothing at T2 and goes stale the moment a tier's
+# reviewer name diverges, as it did when T3 introduced `code-reviewer-t3`:
+# a stale `[code-reviewer]` here would either spawn a redundant reviewer
+# alongside `code-reviewer-t3` or silently under-satisfy its own field.
+# Applying every matching override still means the profile floor for the
+# FINAL tier, whatever it is — that is enforced by
+# `test_oracle_rosters_contain_the_profile_floor`, not by this field.
+overrides:
+  - id: security-sensitive
+    match_any_signal:
+      - changes-authentication-flow
+      - changes-authorization-rule
+      - writes-secret
+      - rotates-credential
+      - changes-cryptography
+      - stores-pii
+      - exposes-pii
+      - exposes-secret
+      - exposes-credential
+      - exposes-sensitive-record
+    minimum_tier: T2
+
+  - id: payment-or-money-movement
+    match_any_signal:
+      - moves-money
+      - writes-ledger
+      - creates-charge
+      - issues-refund
+      - changes-billing-rule
+    minimum_tier: T2
+
+  - id: database-or-data-migration
+    match_any_signal:
+      - changes-schema
+      - migrates-data
+      - runs-backfill
+      - drops-column
+      - changes-canonical-model
+    minimum_tier: T2
+
+  - id: cross-service-change
+    match_any_signal:
+      - changes-service-contract
+      - changes-event-contract
+      - adds-service-dependency
+      - changes-storage-ownership
+    minimum_tier: T2
+
+  - id: irreversible-or-destructive
+    match_any_signal:
+      - deletes-data
+      - executes-irreversible-operation
+      - rotates-credential-without-rollback
+    minimum_tier: T3
+
+  - id: identity-model-migration
+    match_all_signals:
+      - changes-authentication-flow
+      - migrates-data
+      - rolls-out-across-clients
+    minimum_tier: T3
+
+  - id: critical-payment-distributed-consistency
+    match_all_signals:
+      - moves-money
+      - coordinates-distributed-work
+      - requires-idempotency
+    minimum_tier: T3
+
+  # --- pdf-toc-splitter local overrides ------------------------------------
+  # Everything above is the claude-agent-routing-template policy, verbatim.
+  # These two turn the change-class floors of
+  # agent-routing/pdf-toc-splitter-overlay.yaml into overrides, because
+  # scripts/route.py reads this file and nothing else: a floor that only the
+  # classifier applies is a floor the resolver cannot enforce. The signals
+  # are the overlay's domain signals; tests/harness/test_overlay.py asserts
+  # that each class's tier_floor equals what its signals resolve to here.
+  # Re-apply this block when re-syncing the policy from the template.
+  - id: pdf-toc-splitter-behavior
+    match_any_signal:
+      - changes-cli-contract
+      - changes-toc-parsing
+      - changes-bookmark-reading
+      - changes-page-arithmetic
+      - changes-output-naming
+      - changes-packaging-manifest
+    minimum_tier: T1
+
+  - id: pdf-toc-splitter-output-write
+    match_any_signal:
+      - changes-output-write-path
+    minimum_tier: T2
+
+# Parallelism changes when agents run, never how many run. An agent budget is
+# not raised because tracks are independent.
+parallelism:
+  budget_interaction: parallelism_never_increases_max_agent_invocations
+  prefer_concurrent_when_any:
+    - multiple_independent_components
+    - competing_hypotheses
+    - independent_research_tracks
+    - cross_layer_workstreams
+  prefer_strict_sequence_when_any:
+    - architecture_must_precede_implementation
+    - destructive_migration
+    - single_shared_hotspot

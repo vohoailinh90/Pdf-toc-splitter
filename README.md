@@ -87,3 +87,21 @@ Repo Git đã được khởi tạo cục bộ. Nếu đã cài và đăng nhậ
 ```bash
 gh repo create pdf-toc-splitter --private --source=. --push
 ```
+
+## Quy trình làm việc với agent
+
+Repo này dùng quy trình "chọn cấu hình thực thi nhỏ nhất đủ an toàn" của `claude-agent-routing-template`. Mọi thay đổi không tầm thường được phân loại từ T0 đến T3; chỉ những thay đổi có rủi ro thật mới cần agent kiểm tra độc lập, và số agent bị chặn cứng bằng hook.
+
+- `CLAUDE.md`: quy tắc cho agent (không ghi đè hay xóa file, mật khẩu chỉ nhập qua prompt, không commit PDF).
+- `docs/PROCESS.md`: quy trình chi tiết cho đúng codebase này, gồm danh sách các bài kiểm tra bắt buộc.
+- `agent-routing/`: chính sách phân loại và overlay riêng của repo (tín hiệu, nhóm thay đổi, cổng xác nhận).
+
+```bash
+pip install -e . -r requirements-dev.txt
+python -m unittest discover -s tests -v
+python3 scripts/layout_check.py
+python3 scripts/mutation_check.py --all
+python3 scripts/route.py --dimensions 0,1,0,0,1,1 --signals changes-page-arithmetic
+```
+
+Mỗi PR được Codex review ngay khi mở và chỉ được merge khi review của commit hiện tại không còn phát hiện nào (xem mục *Pull request lifecycle* trong `CLAUDE.md`). Giao diện và thông báo của công cụ vẫn là tiếng Việt; thêm ngôn ngữ khác là thay đổi sản phẩm cần yêu cầu rõ ràng.

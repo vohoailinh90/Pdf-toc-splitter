@@ -1,0 +1,301 @@
+version: 1
+name: pdf-toc-splitter-routing-overlay
+target_repository: vohoailinh90/pdf-toc-splitter
+base_policy: agent-routing/policy.yaml
+
+# This file is an OVERLAY, not a replacement. It does not define a tier model,
+# a score range, a budget or a profile - those come from the base policy and
+# are used unchanged. It adds what the base policy cannot know about this
+# codebase:
+#
+#   1. domain signals for the actions this tool performs
+#   2. a mapping from those signals onto base signals, so scripts/route.py
+#      applies the existing overrides without the base policy being edited
+#   3. change classes: a path -> tier-floor lookup for the changes this
+#      repository sees every week
+#   4. the deterministic checks that guard each class
+#
+# scripts/route.py does not read this file, and it has no tier-floor input.
+# So nothing here is enforced by prose: every tier this file implies reaches
+# the resolver through policy.yaml. A domain signal either maps onto a base
+# signal (signal_mapping below) or is declared in the marked "pdf-toc-splitter
+# local overrides" block at the end of policy.yaml's `overrides:`, and
+# tests/harness/test_overlay.py proves that each change class's tier_floor is
+# exactly what its signals produce when resolved through the policy.
+#
+# Everything here can only raise a tier. Nothing here lowers one.
+inherits:
+  scoring: base
+  score_tiers: base
+  profiles: base
+  budget: base
+  parallelism: base
+  deterministic_work: base
+
+# Domain signals - verb-first actions. The question is always "what does this
+# change DO?", never "what does this file mention?".
+domain_signals:
+  overwrites-user-file: >-
+    Makes the tool write over a file that already exists - the source PDF or
+    a previously exported section. Today split() opens every output with mode
+    'xb' and refuses to start when any destination exists or equals the
+    source; a --force flag, a switch to 'wb', or dropping the pre-validation
+    loop is this signal.
+  deletes-user-file: >-
+    Makes the tool remove a user-supplied or previously generated file from
+    disk (a --move option, cleaning an output directory, deleting the source
+    after a successful split).
+  changes-password-handling: >-
+    Changes how an encrypted PDF's password is obtained, stored, logged or
+    passed: today a getpass prompt behind --ask-password, never an argv value,
+    an environment variable, a file or a log line.
+  executes-release-publish: >-
+    Publishes a build to users or an index (PyPI upload, a release tag that
+    triggers one). Once published a version cannot be recalled.
+  changes-output-write-path: >-
+    Edits how sections are written to disk: the destination layout, the
+    open mode, the page copy loop, metadata, or the pre-write validation in
+    split(). The source PDF and every previously exported file must survive
+    any bug here, which is why this class has a floor of T2.
+  changes-page-arithmetic: >-
+    Changes which source pages a section receives: the offset, the strict-
+    increase validation, the end-of-section rule or the end of the document
+    in plan(). An off-by-one exports the wrong pages with no error.
+  changes-output-naming: >-
+    Changes how a title becomes a file name: sanitisation, reserved names,
+    the byte cap or the duplicate suffix (safe_name, the naming loop in plan).
+  changes-toc-parsing: >-
+    Changes which text lines parse_toc accepts, or what title and page it
+    returns for a line it already accepted.
+  changes-bookmark-reading: >-
+    Changes which outline items bookmark_entries returns or which page it
+    resolves them to (levels, destinations).
+  changes-cli-contract: >-
+    Changes a flag's name, default or meaning, an exit code, the stdout line
+    format, or which stream a message goes to. Rewording a message is not
+    this signal.
+  changes-packaging-manifest: >-
+    Changes pyproject.toml's dependency range (pypdf), Python floor, package
+    discovery or console-script target.
+
+# Read-only access never raises a tier. It may still raise the risk or
+# verification score on its own merit - through scoring, where it can be
+# weighed.
+read_only_exempt:
+  - reads-pdf-pages
+  - reads-pdf-bookmarks
+  - reads-toc-file
+  - calls-existing-pypdf-api
+  - uses-existing-password-prompt
+
+# Each entry names the base signal it maps onto AND the outcome it relies on.
+# Declaring the expected override and tier makes the mapping testable:
+# tests/harness/test_overlay.py resolves it through the base policy, so a base
+# change that moves the signal cannot leave the overlay silently wrong.
+signal_mapping:
+  overwrites-user-file:
+    base_signal: executes-irreversible-operation
+    expected_override: irreversible-or-destructive
+    expected_minimum_tier: T3
+  deletes-user-file:
+    base_signal: deletes-data
+    expected_override: irreversible-or-destructive
+    expected_minimum_tier: T3
+  changes-password-handling:
+    base_signal: writes-secret
+    expected_override: security-sensitive
+    expected_minimum_tier: T2
+  executes-release-publish:
+    base_signal: executes-irreversible-operation
+    expected_override: irreversible-or-destructive
+    expected_minimum_tier: T3
+
+# The "action, not noun" discipline applied to the three places this codebase
+# produces false positives.
+discrimination_rules:
+  - about: pdf-files
+    is_signal: >-
+      Any code path that creates, overwrites or removes a file under the
+      user's output directory or next to the source (split(), the open mode,
+      the destination checks) -> changes-output-write-path, and
+      overwrites-user-file / deletes-user-file when it can touch an existing
+      file.
+    is_not_signal: >-
+      parse_toc, bookmark_entries, plan, safe_name and every other function
+      that only reads a PDF or computes a plan -> reads-pdf-pages /
+      reads-pdf-bookmarks -> exempt. Printing the plan in --dry-run writes
+      nothing. Score it normally, usually T1.
+  - about: password
+    is_signal: >-
+      Adding a --password value flag, reading the password from the
+      environment or a file, caching it, or printing/logging it ->
+      changes-password-handling -> T2.
+    is_not_signal: >-
+      Calling the existing getpass prompt unchanged, or editing the wording
+      of its prompt or its error message -> uses-existing-password-prompt ->
+      exempt.
+  - about: documentation
+    is_signal: >-
+      Changing a flag's name, default or meaning, or an exit code or the
+      stdout line format -> the CLI contract (class cli-surface, T1) even if
+      only README.md and one argparse line change.
+    is_not_signal: >-
+      Rewording README prose, adding an example, fixing a typo in a help
+      string without changing behaviour -> docs-and-examples -> T0.
+
+# Change-class fast path. A lookup that reaches the same answer as a full
+# rubric scoring for the changes this repo sees weekly. A class names the
+# SIGNALS its change performs; resolving those through the policy yields the
+# floor, so the floor is applied by scripts/route.py and not by the reader.
+# A signal is only attached when the change really does the action: a wording
+# or comment edit inside parse_toc does not change parsing, so it carries no
+# signal and routes by its score. Scoring may raise the tier above the floor;
+# it may never lower it. A reference with a space in it
+# is a prose description of an ACTION, matched by the action and never by a
+# file (see the destructive-io and release notes).
+change_classes:
+  - id: docs-and-examples
+    paths: ["README.md", "examples/*.txt"]
+    tier_floor: T0
+    signals: []
+    note: >-
+      README prose and example TOC files. A change that renames or removes a
+      documented flag is cli-surface, not this class.
+
+  - id: cli-surface
+    paths: ["pdf_toc_splitter/__main__.py::main", "pdf_toc_splitter/__main__.py::page_range"]
+    tier_floor: T1
+    signals: [changes-cli-contract]
+    note: >-
+      Flags, defaults, messages, exit codes and the stdout line format are
+      the interface people script against.
+
+  - id: toc-parser
+    paths: ["pdf_toc_splitter/core.py::parse_toc"]
+    tier_floor: T1
+    signals: [changes-toc-parsing]
+    note: >-
+      A regex over text that comes from a human or a PDF text layer. A change
+      that parses one more shape can silently change the page of an existing
+      one; the table check lists both.
+
+  - id: bookmark-reader
+    paths: ["pdf_toc_splitter/core.py::bookmark_entries"]
+    tier_floor: T1
+    signals: [changes-bookmark-reading]
+
+  - id: page-planning
+    paths: ["pdf_toc_splitter/core.py::plan"]
+    tier_floor: T1
+    signals: [changes-page-arithmetic]
+    note: >-
+      Offset arithmetic, strict-increase validation, the last section running
+      to the end of the document and duplicate-name suffixing. Off-by-one
+      here exports the wrong pages without any error.
+
+  - id: filename-safety
+    paths: ["pdf_toc_splitter/core.py::safe_name"]
+    tier_floor: T1
+    signals: [changes-output-naming]
+    note: >-
+      Titles are untrusted text that become file names. Containment inside
+      the output directory, Windows reserved names and the length cap are
+      properties of this one function.
+
+  - id: packaging
+    paths: ["pyproject.toml"]
+    tier_floor: T1
+    signals: [changes-packaging-manifest]
+    note: >-
+      The pypdf range (>=5,<7) and the console-script target. CI runs the
+      suite against pypdf 5 and 6, which is what makes the range a claim
+      with evidence.
+
+  - id: output-write
+    paths: ["pdf_toc_splitter/core.py::split"]
+    tier_floor: T2
+    signals: [changes-output-write-path]
+    note: >-
+      The only function that writes. Reclassifies to destructive-io the
+      moment a change lets it write over an existing file.
+
+  - id: password-handling
+    paths: ["any change to how a PDF password is obtained, stored, logged or passed"]
+    tier_floor: T2
+    signals: [changes-password-handling]
+    note: >-
+      Matched by the ACTION. Maps to writes-secret, so scripts/route.py
+      raises the security-sensitive override from the base policy.
+
+  - id: destructive-io
+    paths: ["any change that lets the tool write over, move or remove an existing file"]
+    tier_floor: T3
+    signals: [overwrites-user-file, deletes-user-file]
+    human_gate: true
+    note: >-
+      Matched by the ACTION, never by a file: split() belongs to output-write
+      (T2), and an ordinary edit there must not be promoted to gated T3.
+
+  - id: release
+    paths: ["publishing a build or version to users or a package index"]
+    tier_floor: T3
+    signals: [executes-release-publish]
+    human_gate: true
+    note: >-
+      Matched by the ACTION. Editing pyproject.toml is packaging (T1);
+      putting the built package in users' hands is release (T3, gated).
+
+# Gates on CHANGES, not permissions for the running tool. The product
+# invariant is absolute: the shipped tool never overwrites an existing file
+# and never deletes one. A gate exists for the case where someone deliberately
+# proposes a path that would breach it; clearing it for that change never
+# relaxes the invariant anywhere else. Every entry is a declared signal, so
+# the match is total.
+human_gates:
+  - overwrites-user-file
+  - deletes-user-file
+  - changes-password-handling
+  - executes-release-publish
+
+# Deterministic work. Computable answers get scripts, not agents. Every entry
+# is a real test module under tests/checks/ (PROCESS.md section 2 states the
+# assertions); check_required_checks_exist asserts that this list and that
+# directory agree in both directions.
+required_checks:
+  - id: check_page_ranges
+    file: tests/checks/check_page_ranges.py
+    guards: [page-planning]
+    offline: true
+    status: implemented
+  - id: check_toc_parser_tables
+    file: tests/checks/check_toc_parser_tables.py
+    guards: [toc-parser, docs-and-examples]
+    offline: true
+    status: implemented
+  - id: check_filename_safety
+    file: tests/checks/check_filename_safety.py
+    guards: [filename-safety]
+    offline: true
+    status: implemented
+  - id: check_split_roundtrip
+    file: tests/checks/check_split_roundtrip.py
+    guards: [output-write, bookmark-reader, page-planning, destructive-io]
+    offline: true
+    status: implemented
+  - id: check_cli_contract
+    file: tests/checks/check_cli_contract.py
+    guards: [cli-surface, password-handling, docs-and-examples, packaging]
+    offline: true
+    status: implemented
+  - id: check_no_documents_committed
+    file: tests/checks/check_no_documents_committed.py
+    guards: [always]
+    offline: true
+    always_runs: true
+    status: implemented
+  - id: check_required_checks_exist
+    file: tests/checks/check_required_checks_exist.py
+    guards: [always]
+    offline: true
+    always_runs: true
+    status: implemented

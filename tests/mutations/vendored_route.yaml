@@ -1,0 +1,8 @@
+# Mutation manifest - see scripts/mutation_check.py
+target: scripts/route.py
+note: The recovery command route.py prints must name a file that exists here.
+mutations:
+- label: the PyYAML message points at a requirements file this repository does not ship
+  find: python -m pip install -r requirements-dev.txt
+  replace: python -m pip install -r requirements-eval.txt
+  test: tests.harness.test_install.VendoredScriptsFitThisRepository.test_every_requirements_file_a_script_names_exists

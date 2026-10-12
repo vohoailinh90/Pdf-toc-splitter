@@ -1,0 +1,41 @@
+# Mutation manifest - see scripts/mutation_check.py
+#
+# Each entry breaks one behavior of the command line in pdf_toc_splitter/__main__.py
+# and requires the named check to fail.
+
+target: pdf_toc_splitter/__main__.py
+note: The exit codes, the stream a message goes to, the dry-run promise and the rule that a PDF
+  password never leaves the prompt.
+mutations:
+- label: an error exits 0
+  find: "        return 1"
+  replace: "        return 0"
+  test: tests.checks.check_cli_contract.ExitCodesAndStreams.test_errors_exit_one_with_the_message_on_stderr_only
+- label: an error message goes to stdout
+  find: "print(f'Lỗi: {error}', file=sys.stderr)"
+  replace: "print(f'Lỗi: {error}')"
+  test: tests.checks.check_cli_contract.ExitCodesAndStreams.test_errors_exit_one_with_the_message_on_stderr_only
+- label: --dry-run writes the files anyway
+  find: "        if not args.dry_run:"
+  replace: "        if True:"
+  test: tests.checks.check_cli_contract.ExitCodesAndStreams.test_dry_run_prints_the_plan_writes_nothing_and_exits_zero
+- label: --page-offset is silently accepted with bookmarks
+  find: "            if args.page_offset:"
+  replace: "            if False:"
+  test: tests.checks.check_cli_contract.ExitCodesAndStreams.test_errors_exit_one_with_the_message_on_stderr_only
+- label: the two TOC sources stop being mutually exclusive
+  find: sources = parser.add_mutually_exclusive_group()
+  replace: sources = parser
+  test: tests.checks.check_cli_contract.ExitCodesAndStreams.test_the_toc_sources_are_mutually_exclusive
+- label: the password is interpolated into an error message
+  find: "raise ValueError('PDF có mật khẩu; chạy lại với --ask-password')"
+  replace: "raise ValueError(f'PDF có mật khẩu {password}; chạy lại với --ask-password')"
+  test: tests.checks.check_cli_contract.PasswordOnlyComesFromAPrompt.test_the_sources_never_read_or_print_the_password_elsewhere
+- label: a wrong or missing PDF password is no longer an error
+  find: "            if not reader.decrypt(password):"
+  replace: "            if False:"
+  test: tests.checks.check_cli_contract.EncryptedPdf.test_with_the_flag_the_right_password_unlocks_it
+- label: the password prompt appears without --ask-password
+  find: "if args.ask_password else ''"
+  replace: "if True else ''"
+  test: tests.checks.check_cli_contract.EncryptedPdf.test_without_the_flag_it_never_prompts_and_tells_the_user_what_to_do
