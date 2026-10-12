@@ -1,7 +1,40 @@
 __pycache__/
+*.pyc
 *.egg-info/
 .venv/
 build/
 dist/
 split-output/
-*.pdf
+
+# Documents are the user's, never the repository's. Matches any letter case:
+# files that come from Windows are often .PDF. Test fixtures are built on the
+# fly by tests/support/pdfs.py (see tests/checks/check_no_documents_committed.py).
+*.[pP][dD][fF]
+
+# Claude/local state
+.claude/settings.local.json
+# The operator's standing lane choice (scripts/lane.py): one machine's setup, never shared.
+.claude/routing-lane.local
+# Worktrees scripts/codex_cli.py gives the Codex CLI to write in.
+.codex-worktrees/
+
+# Generated artifacts (keep folders, ignore run outputs)
+artifacts/architecture/*
+!artifacts/architecture/.gitkeep
+artifacts/critiques/*
+!artifacts/critiques/.gitkeep
+artifacts/plans/*
+!artifacts/plans/.gitkeep
+artifacts/reviews/*
+!artifacts/reviews/.gitkeep
+
+# Session handoff is local session state, not repository content:
+# it quotes the last prompt and the working tree of one machine's run.
+artifacts/handoff/*
+!artifacts/handoff/.gitkeep
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
+.pytest_cache/

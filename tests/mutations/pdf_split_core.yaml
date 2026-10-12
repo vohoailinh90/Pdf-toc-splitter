@@ -1,0 +1,50 @@
+# Mutation manifest - see scripts/mutation_check.py
+#
+# A passing test proves nothing on its own. Each entry breaks one behavior in
+# pdf_toc_splitter/core.py and requires the named check to fail. A mutation
+# that SURVIVES means the check guards nothing.
+
+target: pdf_toc_splitter/core.py
+note: The behaviors people would silently lose in a refactor - the pre-write overwrite refusal, the
+  page arithmetic and the file-name guarantees - each with the check that must notice.
+mutations:
+- label: an existing destination no longer stops the run before it writes
+  find: destination.resolve() == source.resolve() or destination.exists()
+  replace: destination.resolve() == source.resolve()
+  test: tests.checks.check_split_roundtrip.NeverOverwrites.test_one_existing_destination_blocks_the_whole_run_before_any_write
+- label: a section ends on the first page of the next one
+  find: starts[i+1]-1 if i+1 < len(starts)
+  replace: starts[i+1] if i+1 < len(starts)
+  test: tests.checks.check_page_ranges.RangeTable.test_boundaries
+- label: two entries on one page are accepted
+  find: "if any(a >= b for a, b in zip(starts, starts[1:])):"
+  replace: "if any(a > b for a, b in zip(starts, starts[1:])):"
+  test: tests.checks.check_page_ranges.RangeTable.test_rejected_inputs
+- label: the page offset is subtracted instead of added
+  find: starts = [item.page + offset for item in entries]
+  replace: starts = [item.page - offset for item in entries]
+  test: tests.checks.check_page_ranges.RangeTable.test_boundaries
+- label: a bookmark resolves to the page before its destination
+  find: entries.append(Entry(str(item.title), page + 1))
+  replace: entries.append(Entry(str(item.title), page))
+  test: tests.checks.check_split_roundtrip.Roundtrip.test_bookmarks_drive_the_same_contract
+- label: titles are no longer normalised to NFC
+  find: title = unicodedata.normalize('NFC', title)
+  replace: title = title
+  test: tests.checks.check_filename_safety.SafeName.test_vietnamese_text_survives
+- label: a path separator is no longer replaced in a title
+  find: '[<>:"/\\|?*\x00-\x1f\x7f]'
+  replace: '[<>:"\\|?*\x00-\x1f\x7f]'
+  test: tests.checks.check_filename_safety.SafeName.test_every_property_over_the_hostile_corpus
+- label: Windows reserved names are no longer prefixed
+  find: "        title = '_' + title"
+  replace: "        title = title"
+  test: tests.checks.check_filename_safety.SafeName.test_every_property_over_the_hostile_corpus
+- label: the byte cap on a name is ten times too high
+  find: "while len(title.encode('utf-8')) > 180:"
+  replace: "while len(title.encode('utf-8')) > 1800:"
+  test: tests.checks.check_filename_safety.SafeName.test_every_property_over_the_hostile_corpus
+- label: duplicate names are no longer remembered, so they collide
+  find: "        used.add(filename.casefold())"
+  replace: "        pass"
+  test: tests.checks.check_filename_safety.PlannedFilenames.test_every_filename_is_unique_ignoring_case
