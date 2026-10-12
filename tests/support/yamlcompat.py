@@ -17,3 +17,14 @@ def require_yaml():
             raise
         raise unittest.SkipTest("PyYAML is not installed: pip install -r requirements-dev.txt")
     return yaml
+
+
+def require_dependency(module, why):
+    """Skip when a development-only module is absent - unless CI says it must be there."""
+    import importlib.util
+
+    if importlib.util.find_spec(module) is None:
+        message = f"{module} is not installed ({why}): pip install -r requirements-dev.txt"
+        if os.environ.get("REQUIRE_HARNESS") == "1":
+            raise ImportError(message)
+        raise unittest.SkipTest(message)

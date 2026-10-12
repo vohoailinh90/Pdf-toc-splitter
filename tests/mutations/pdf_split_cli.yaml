@@ -31,3 +31,11 @@ mutations:
   find: "raise ValueError('PDF có mật khẩu; chạy lại với --ask-password')"
   replace: "raise ValueError(f'PDF có mật khẩu {password}; chạy lại với --ask-password')"
   test: tests.checks.check_cli_contract.PasswordOnlyComesFromAPrompt.test_the_sources_never_read_or_print_the_password_elsewhere
+- label: a wrong or missing PDF password is no longer an error
+  find: "            if not reader.decrypt(password):"
+  replace: "            if False:"
+  test: tests.checks.check_cli_contract.EncryptedPdf.test_with_the_flag_the_right_password_unlocks_it
+- label: the password prompt appears without --ask-password
+  find: "if args.ask_password else ''"
+  replace: "if True else ''"
+  test: tests.checks.check_cli_contract.EncryptedPdf.test_without_the_flag_it_never_prompts_and_tells_the_user_what_to_do

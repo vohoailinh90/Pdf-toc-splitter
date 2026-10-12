@@ -9,10 +9,11 @@ the failure mode of this tool is the wrong pages in the right file.
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from pypdf import PdfReader
 
-from pdf_toc_splitter.core import Entry, bookmark_entries, plan, split
+from pdf_toc_splitter.core import Entry, PdfWriter, bookmark_entries, plan, split
 from tests.support.pdfs import build_pdf, sha256, tree, widths
 
 OUTLINE = [("Phần A", 1, 1), ("Mục con", 2, 2), ("Phần B", 4, 1)]
@@ -86,6 +87,21 @@ class NeverOverwrites(unittest.TestCase):
             split(self.reader, self.sections, out, self.source)
         self.assertEqual(tree(out), {existing.name: sha256(existing)})
         self.assertEqual(existing.read_bytes(), b"precious")
+
+    def test_a_file_that_appears_after_the_validation_is_still_not_overwritten(self):
+        """The pre-write validation is one layer; opening with exclusive creation is the
+        other. This makes the destination appear between them, which is what a second
+        process (or a sync client) can do, and requires the bytes to survive."""
+        out = self.root / "out"
+        target = out / self.sections[0].filename
+
+        def appear_late(*args, **kwargs):
+            target.write_bytes(b"precious")
+
+        with mock.patch.object(PdfWriter, "add_metadata", autospec=True, side_effect=appear_late):
+            with self.assertRaises(FileExistsError):
+                split(self.reader, self.sections, out, self.source)
+        self.assertEqual(target.read_bytes(), b"precious")
 
     def test_the_source_pdf_cannot_be_an_output_destination(self):
         before = sha256(self.source)

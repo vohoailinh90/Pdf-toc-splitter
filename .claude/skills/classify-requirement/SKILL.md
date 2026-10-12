@@ -34,8 +34,10 @@ pages without raising anything.
    flags and guarded checks. A class whose path contains a space describes an
    **action** (`destructive-io`, `release`, `password-handling`): match it by
    what the change does, never by which file it edits.
-4. **Full path.** Score each dimension 0-2: ambiguity, scope, architecture,
-   dependencies, risk, verification. Sum the raw score (0-12).
+4. **Full path.** Scoring always happens - a matching class never replaces it.
+   The class contributes signals (and through them its floor); the score decides
+   whether the tier rises above that floor. Score each dimension 0-2: ambiguity,
+   scope, architecture, dependencies, risk, verification. Sum the raw score (0-12).
 5. Extract signals as **actions the change performs**, using the base
    `signal_taxonomy` plus the overlay's `domain_signals`. Ask "what does this
    change do?", not "what does this requirement mention?".

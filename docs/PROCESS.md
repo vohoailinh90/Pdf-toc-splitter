@@ -118,6 +118,13 @@ running tool. The product invariants - the tool never overwrites an existing
 file and never deletes one - hold unconditionally; clearing a gate for one
 deliberate change never relaxes them anywhere else.
 
+The gate is applied by the classifier from the overlay's `human_gates`; the
+base policy defines no `human_gate`, so `scripts/route.py` reports
+`human_gate.required: false` for these signals. That is the one place this
+process leans on prose rather than the resolver, and it is bounded:
+`tests/harness/test_overlay.py` asserts that every gate is a declared signal,
+that a class carries it, and that every signal of a gated class is a gate.
+
 ### 1.6 Pull request, Codex review, merge
 
 CLAUDE.md's *Pull request lifecycle* applies to every PR at every tier: request
@@ -139,8 +146,8 @@ together with the product tests; one at a time:
 | `check_page_ranges` | `page-planning` | A table of boundaries through `plan()` (one entry, last section of one page, positive and negative offset, one page per entry), the rejected inputs (page 0, past the end, equal, decreasing, an offset that leaves the document), and over 300 seeded random tables that the sections tile the document with no gap or overlap from the first entry to the last page. |
 | `check_toc_parser_tables` | `toc-parser`, `docs-and-examples` | One row per accepted line shape (dot leader, spaced leader, plain space, tab, ellipsis, digits inside the title, Vietnamese text, emoji) and per rejected shape (no page, empty title, trailing junk, negative or decimal page, empty text); the error names the line; `examples/toc.txt` has 32 strictly increasing entries and plans to 8-11 ... 75-80 on an 80-page PDF. |
 | `check_filename_safety` | `filename-safety` | Over a hostile corpus (path traversal, drive letters, reserved names with and without extensions, control characters, trailing dots and spaces, 300-character and multi-byte titles, NFD/NFC spellings, case-only duplicates, a title equal to a generated suffix): no separator or forbidden character, no reserved name, at most 180 bytes, NFC, never cut inside a character; and planned file names are case-insensitively unique and every destination resolves inside the output directory. |
-| `check_split_roundtrip` | `output-write`, `bookmark-reader`, `page-planning`, `destructive-io` | On a PDF built on the fly with a distinct width per page: every exported page is the planned source page, the exports tile the document from the first entry, bookmarks drive the same contract at levels 1 and 2, the source's SHA-256 is unchanged, a second run is refused and leaves every output byte-identical, one existing destination blocks the run **before** any file is written, and the source PDF cannot be an output destination. |
-| `check_cli_contract` | `cli-surface`, `password-handling`, `docs-and-examples`, `packaging` | The flags in `--help` and the flags the README presents are the same set, and exactly the expected seven; no flag takes a secret value and the sources never read the password from `args`, the environment or a log, or print or interpolate it; `--help` exits 0, `--dry-run` prints `start-end name.pdf` lines and writes nothing, errors exit 1 with `Lỗi:` on stderr and nothing on stdout, conflicting TOC sources exit 2; the console script resolves to a callable; the Python floor matches CI. |
+| `check_split_roundtrip` | `output-write`, `bookmark-reader`, `page-planning`, `destructive-io` | On a PDF built on the fly with a distinct width per page: every exported page is the planned source page, the exports tile the document from the first entry, bookmarks drive the same contract at levels 1 and 2, the source's SHA-256 is unchanged, a second run is refused and leaves every output byte-identical, one existing destination blocks the run **before** any file is written, a destination that appears *after* that validation is still not overwritten (exclusive creation is the second layer), and the source PDF cannot be an output destination. |
+| `check_cli_contract` | `cli-surface`, `password-handling`, `docs-and-examples`, `packaging` | The flags in `--help` and the flags the README presents are the same set, and exactly the expected seven; no flag takes a secret value and the sources never read the password from `args`, the environment or a log, or print or interpolate it; on an AES-encrypted PDF the prompt appears only with `--ask-password`, the right password unlocks it, a wrong or missing one exits 1, and the password reaches neither stream; `--help` exits 0, `--dry-run` prints `start-end name.pdf` lines and writes nothing, errors exit 1 with `Lỗi:` on stderr and nothing on stdout, conflicting TOC sources exit 2; the console script resolves to a callable; the Python floor matches CI. |
 | `check_no_documents_committed` | always | No tracked `*.pdf` (any letter case) or `split-output/` file, and `.gitignore` ignores documents, the output directory, the virtualenv and local Claude state. |
 | `check_required_checks_exist` | always | Every overlay entry states a `status`; every `implemented` entry is a module that defines a `TestCase`; no `planned` entry already exists; every `tests/checks/check_*.py` is declared. Both directions: one stops policy advertising a gate that does not run, the other stops a gate running outside the policy that governs it. |
 
@@ -159,7 +166,7 @@ Properties of the code as it stands, not bugs to fix in passing.
 
 | # | Risk | Where | Class / tier |
 |---|---|---|---|
-| 1 | The no-overwrite guarantee is two layers: a validation loop before any write, and `open('xb')`. Removing either one is a one-line change that the normal tests do not notice unless `check_split_roundtrip` runs. | `core.split` | `output-write` / T2, `destructive-io` / T3 |
+| 1 | The no-overwrite guarantee is two layers: a validation loop before any write, and `open('xb')`. Removing either one is a one-line change; `check_split_roundtrip` fails for each (one test makes the file appear between the layers). | `core.split` | `output-write` / T2, `destructive-io` / T3 |
 | 2 | Pages before the first TOC entry are not exported, and the last section runs to the end of the document (appendices included). Documented in the README, easy to "fix" by accident. | `core.plan` | `page-planning` / T1 |
 | 3 | `parse_toc` takes the *last* number on a line as the page, so a title ending in a number needs a dot leader or tab to be read as intended. Documented behaviour; changing it moves pages. | `core.parse_toc` | `toc-parser` / T1 |
 | 4 | Text TOCs read from a PDF (`--toc-pages`) depend on the PDF's text layer; scanned PDFs have none and the tool does not OCR. | `__main__.main` | out of scope; say so, do not add OCR in passing |

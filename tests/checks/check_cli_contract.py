@@ -9,11 +9,16 @@ import importlib
 import re
 import subprocess
 import sys
+import contextlib
+import io
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from tests.support.pdfs import build_pdf, tree
+from pdf_toc_splitter.__main__ import main
+from tests.support.pdfs import build_encrypted_pdf, build_pdf, tree
+from tests.support.yamlcompat import require_dependency
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = ROOT / "pdf_toc_splitter"
@@ -149,6 +154,55 @@ class ExitCodesAndStreams(unittest.TestCase):
         result = run(self.pdf, "--dry-run")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(result.stdout.splitlines()), 2)
+
+
+class EncryptedPdf(unittest.TestCase):
+    """The password path, exercised rather than only scanned: it is prompted for
+    only when --ask-password is given, a wrong or missing one is an error, and
+    nothing about it leaks onto either stream."""
+
+    PASSWORD = "s3cret-Mật-khẩu"
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        require_dependency("cryptography", "AES-encrypted test PDFs")
+        self.pdf = build_encrypted_pdf(Path(self.temp.name) / "locked.pdf", self.PASSWORD)
+
+    def run_main(self, *args, typed=None):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(sys, "argv", ["pdf-toc-splitter", str(self.pdf), "--dry-run", *args]), \
+                mock.patch("getpass.getpass", return_value=typed) as prompt, \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = main()
+        return code, out.getvalue(), err.getvalue(), prompt
+
+    def test_without_the_flag_it_never_prompts_and_tells_the_user_what_to_do(self):
+        code, out, err, prompt = self.run_main(typed=self.PASSWORD)
+        self.assertEqual(code, 1)
+        prompt.assert_not_called()
+        self.assertTrue(err.startswith("Lỗi:") and "--ask-password" in err, err)
+        self.assertEqual(out, "")
+
+    def test_with_the_flag_the_right_password_unlocks_it(self):
+        code, out, err, prompt = self.run_main("--ask-password", typed=self.PASSWORD)
+        self.assertEqual((code, err), (0, ""), err)
+        prompt.assert_called_once()
+        self.assertRegex(out, r"^\s*1-3\s+Phần A\.pdf")
+
+    def test_with_the_flag_a_wrong_password_is_an_error(self):
+        code, out, err, prompt = self.run_main("--ask-password", typed="wrong")
+        self.assertEqual(code, 1)
+        prompt.assert_called_once()
+        self.assertTrue(err.startswith("Lỗi:"), err)
+        self.assertEqual(out, "")
+
+    def test_the_password_never_reaches_stdout_or_stderr(self):
+        for typed, flags in ((self.PASSWORD, ("--ask-password",)), ("wrong", ("--ask-password",)), (self.PASSWORD, ())):
+            with self.subTest(typed=typed, flags=flags):
+                _, out, err, _ = self.run_main(*flags, typed=typed)
+                self.assertNotIn(typed, out + err)
+                self.assertNotIn(self.PASSWORD, out + err)
 
 
 class PackagingResolves(unittest.TestCase):

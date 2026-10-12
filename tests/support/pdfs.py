@@ -39,3 +39,15 @@ def tree(directory):
     """Every file under `directory` with its digest - a snapshot to compare."""
     root = Path(directory)
     return {str(p.relative_to(root)): sha256(p) for p in sorted(root.rglob("*")) if p.is_file()}
+
+
+def build_encrypted_pdf(path, password, pages=3):
+    """A PDF whose user password is `password`. Needs `cryptography` (requirements-dev.txt)."""
+    writer = PdfWriter()
+    for index in range(pages):
+        writer.add_blank_page(width=100 + index, height=100)
+    writer.add_outline_item("Phần A", 0)
+    writer.encrypt(password, algorithm="AES-128")
+    with Path(path).open("wb") as stream:
+        writer.write(stream)
+    return Path(path)
