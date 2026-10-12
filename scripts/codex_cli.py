@@ -67,7 +67,7 @@ from typing import Any
 try:
     import yaml
 except ImportError:  # pragma: no cover - exercised only where PyYAML is absent
-    print("PyYAML is required. Install it with: python -m pip install -r requirements-eval.txt", file=sys.stderr)
+    print("PyYAML is required. Install it with: python -m pip install -r requirements-dev.txt", file=sys.stderr)
     raise SystemExit(2)
 
 ROOT = Path(__file__).resolve().parents[1]

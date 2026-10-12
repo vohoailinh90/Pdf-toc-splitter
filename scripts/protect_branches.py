@@ -69,6 +69,10 @@ REQUIRED_CHECKS: dict[str, tuple[str, ...]] = {
     "Email_Bridge": ("guard", "safety-invariants", "regression"),
     "Shipping_Inspection": ("guard", "regression"),
     "Customer-tcd-sync": ("guard", "test"),
+    # This repository: one job, `test`, expanded by the matrix in .github/workflows/ci.yml.
+    # tests/harness/test_install.py asserts these names equal that matrix.
+    "Pdf-toc-splitter": ("test (3.10, pypdf>=5,<6)", "test (3.10, pypdf>=6,<7)",
+                         "test (3.13, pypdf>=5,<6)", "test (3.13, pypdf>=6,<7)"),
 }
 
 # Already protected when this was written, with settings this script has never

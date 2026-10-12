@@ -4,6 +4,7 @@ A hook that points at a missing script, an agent the policy names but nobody
 defined, or a CLAUDE.md that sends a reader to a path that is not there all
 fail silently at the moment they are needed. Each is a lookup, so each is a test.
 """
+import importlib.util
 import json
 import re
 import unittest
@@ -105,6 +106,29 @@ class Roster(unittest.TestCase):
         self.assertEqual(len(local), 2)
         for override in local:
             self.assertLessEqual(set(override["match_any_signal"]), set(overlay["domain_signals"]))
+
+
+class VendoredScriptsFitThisRepository(unittest.TestCase):
+    """Scripts copied from the template still have to work here."""
+
+    def test_every_requirements_file_a_script_names_exists(self):
+        for script in sorted((ROOT / "scripts").rglob("*.py")):
+            for name in sorted(set(re.findall(r"requirements[\w-]*\.txt", script.read_text(encoding="utf-8")))):
+                with self.subTest(script=script.name, requirements=name):
+                    self.assertTrue((ROOT / name).is_file(), f"{script.name} tells people to install {name}")
+
+    def test_the_branch_protection_table_names_this_repository_and_exactly_the_ci_jobs(self):
+        """scripts/protect_branches.py visits only the repositories in its table; without
+        this one it can neither report nor apply the protection the merge rule depends on."""
+        spec = importlib.util.spec_from_file_location("protect_branches", ROOT / "scripts" / "protect_branches.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        entries = {name.casefold(): checks for name, checks in module.REQUIRED_CHECKS.items()}
+        self.assertIn("pdf-toc-splitter", entries)
+        workflow = require_yaml().safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
+        matrix = workflow["jobs"]["test"]["strategy"]["matrix"]
+        expected = tuple(f"test ({python}, {pypdf})" for python in matrix["python"] for pypdf in matrix["pypdf"])
+        self.assertEqual(sorted(entries["pdf-toc-splitter"]), sorted(expected))
 
 
 class DocumentationPointsAtRealFiles(unittest.TestCase):

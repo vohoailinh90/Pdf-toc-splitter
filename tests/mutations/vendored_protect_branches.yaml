@@ -1,0 +1,12 @@
+# Mutation manifest - see scripts/mutation_check.py
+target: scripts/protect_branches.py
+note: The vendored branch-protection script only visits repositories in its table.
+mutations:
+- label: this repository is dropped from the protection table
+  find: '    "Pdf-toc-splitter": ('
+  replace: '    "Some-other-repo": ('
+  test: tests.harness.test_install.VendoredScriptsFitThisRepository.test_the_branch_protection_table_names_this_repository_and_exactly_the_ci_jobs
+- label: a CI job is missing from the required checks
+  find: '"test (3.13, pypdf>=6,<7)"),'
+  replace: '),'
+  test: tests.harness.test_install.VendoredScriptsFitThisRepository.test_the_branch_protection_table_names_this_repository_and_exactly_the_ci_jobs

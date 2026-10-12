@@ -189,4 +189,16 @@ but not the parts that serve other kinds of project:
 `policy.yaml`, `scripts/` and `docs/` are vendored from the template. A few
 comments in them mention the tools above; those references are to the template,
 not to something missing here. Re-sync by copying the files again and
-re-applying the marked block at the end of `policy.yaml`'s `overrides:`.
+re-applying the local edits, which are exactly these:
+
+- `agent-routing/policy.yaml`: the marked block at the end of `overrides:`.
+- `scripts/mutation_check.py`: a fresh bytecode cache per test run (a same-size
+  mutation was falsely reported as surviving through a stale `.pyc`).
+- `scripts/protect_branches.py`: this repository in `REQUIRED_CHECKS`, with the
+  four CI job names. Run it as `--owner vohoailinh90 --repo Pdf-toc-splitter`:
+  without `--repo` it also visits the owner's other repositories in that table.
+- `scripts/route.py`, `codex_task.py`, `codex_cli.py`: the PyYAML hint names
+  `requirements-dev.txt`, the file this repository ships.
+
+`tests/harness/test_install.py` fails if a script names a requirements file that
+is not here or if the protection table drifts from the CI matrix.
