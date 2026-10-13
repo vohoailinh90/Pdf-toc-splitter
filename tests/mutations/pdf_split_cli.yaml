@@ -43,3 +43,15 @@ mutations:
   find: "reconfigure(errors='replace')"
   replace: "reconfigure(errors='strict')"
   test: tests.checks.check_cli_contract.ExitCodesAndStreams.test_a_stream_that_cannot_encode_vietnamese_degrades_instead_of_aborting
+- label: the text of the TOC pages is no longer read
+  find: "reader.pages[i].extract_text() or ''"
+  replace: "''"
+  test: tests.checks.check_cli_contract.TocReadFromPdfPages.test_a_clean_toc_page_range_exports_the_exact_pages
+- label: the first TOC page is skipped (1-based start read as 0-based)
+  find: "for i in range(start-1, end))"
+  replace: "for i in range(start, end))"
+  test: tests.checks.check_cli_contract.TocReadFromPdfPages.test_a_clean_toc_page_range_exports_the_exact_pages
+- label: the last TOC page is skipped (inclusive end read as exclusive)
+  find: "for i in range(start-1, end))"
+  replace: "for i in range(start-1, end-1))"
+  test: tests.checks.check_cli_contract.TocReadFromPdfPages.test_a_clean_toc_page_range_exports_the_exact_pages

@@ -18,7 +18,7 @@ from pathlib import Path
 from unittest import mock
 
 from pdf_toc_splitter.__main__ import main
-from tests.support.pdfs import build_encrypted_pdf, build_pdf, tree
+from tests.support.pdfs import build_encrypted_pdf, build_pdf, build_text_pdf, tree, widths
 from tests.support.yamlcompat import require_dependency
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -170,6 +170,58 @@ class ExitCodesAndStreams(unittest.TestCase):
         result = run(self.pdf, "--dry-run")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(result.stdout.splitlines()), 2)
+
+
+class TocReadFromPdfPages(unittest.TestCase):
+    """--toc-pages: the TOC is the text layer of physical pages 2-3, and the page numbers in it
+    are the exact source pages of the exported sections (widths 100..105 identify them)."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.pdf = build_text_pdf(self.root / "doc.pdf", [
+            ["Cover"],
+            ["Contents", "Alpha....4"],
+            ["Beta....6"],
+            [], [], [],
+        ])
+
+    def test_a_heading_line_on_the_toc_pages_is_rejected_not_skipped(self):
+        result = run(self.pdf, "--toc-pages", "2-3", "--dry-run")
+        self.assertEqual((result.returncode, result.stderr), (1, "Lỗi: Dòng mục lục 1 không hợp lệ: Contents\n"),
+                         "the heading line is not a TOC line: it must be rejected, not skipped")
+        self.assertEqual(result.stdout, "")
+
+    def test_a_clean_toc_page_range_exports_the_exact_pages(self):
+        self.pdf = build_text_pdf(self.root / "clean.pdf", [["Cover"], ["Alpha....4"], ["Beta....6"], [], [], []])
+        out = self.root / "out"
+        dry = run(self.pdf, "--toc-pages", "2-3", "--dry-run", "--output", out)
+        self.assertEqual((dry.returncode, dry.stderr), (0, ""), dry.stderr)
+        self.assertEqual([line.split() for line in dry.stdout.splitlines()],
+                         [["4-5", "Alpha.pdf"], ["6-6", "Beta.pdf"]])
+        self.assertFalse(out.exists())
+        real = run(self.pdf, "--toc-pages", "2-3", "--output", out)
+        self.assertEqual((real.returncode, real.stderr), (0, ""), real.stderr)
+        self.assertEqual(widths(out / "Alpha.pdf"), [103, 104])
+        self.assertEqual(widths(out / "Beta.pdf"), [105])
+        self.assertEqual(sorted(p.name for p in out.iterdir()), ["Alpha.pdf", "Beta.pdf"])
+
+    def test_only_the_named_pages_are_read(self):
+        self.pdf = build_text_pdf(self.root / "clean.pdf", [["Cover"], ["Alpha....4"], ["Beta....6"], [], [], []])
+        one = run(self.pdf, "--toc-pages", "2", "--dry-run")
+        self.assertEqual((one.returncode, one.stderr), (0, ""), one.stderr)
+        self.assertEqual([line.split() for line in one.stdout.splitlines()], [["4-6", "Alpha.pdf"]])
+        cover = run(self.pdf, "--toc-pages", "1", "--dry-run")
+        self.assertEqual(cover.returncode, 1)
+        self.assertTrue(cover.stderr.startswith("Lỗi:"), cover.stderr)
+        self.assertEqual(cover.stdout, "")
+
+    def test_pages_without_a_text_layer_are_an_error_not_an_empty_plan(self):
+        result = run(self.pdf, "--toc-pages", "4-5", "--dry-run")
+        self.assertEqual(result.returncode, 1)
+        self.assertTrue(result.stderr.startswith("Lỗi:"), result.stderr)
+        self.assertEqual(result.stdout, "")
 
 
 class EncryptedPdf(unittest.TestCase):
