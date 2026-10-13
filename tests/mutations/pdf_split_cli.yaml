@@ -59,3 +59,7 @@ mutations:
   find: "except FileExistsError as error:"
   replace: "except KeyError as error:"
   test: tests.checks.check_cli_contract.ExitCodesAndStreams.test_an_output_that_is_a_dangling_link_exits_one_with_a_vietnamese_message
+- label: the existing-path error exits 0
+  find: "{error.filename or error}', file=sys.stderr)\n        return 1"
+  replace: "{error.filename or error}', file=sys.stderr)\n        return 0"
+  test: tests.checks.check_cli_contract.ExitCodesAndStreams.test_an_output_that_is_a_dangling_link_exits_one_with_a_vietnamese_message
