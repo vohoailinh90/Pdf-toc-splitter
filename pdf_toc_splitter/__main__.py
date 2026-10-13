@@ -17,7 +17,16 @@ def page_range(value):
     except ValueError:
         raise argparse.ArgumentTypeError('Dùng số trang 1-based, ví dụ: 2 hoặc 2-3')
 
+def tolerate_unencodable_output():
+    # Redirected output on a legacy code page (e.g. cp1252) cannot encode Vietnamese; print
+    # '?' instead of aborting after the plan was computed. File names on disk are unaffected.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, 'reconfigure', None)
+        if reconfigure is not None:
+            reconfigure(errors='replace')
+
 def main():
+    tolerate_unencodable_output()
     parser = argparse.ArgumentParser(description='Tách PDF theo mục lục; tên file là tên hạng mục.')
     parser.add_argument('pdf', type=Path)
     sources = parser.add_mutually_exclusive_group()
