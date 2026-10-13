@@ -83,7 +83,7 @@ def split(reader: PdfReader, sections: list[Section], output: Path, source: Path
     # Validate all destinations before writing. Never overwrite existing files.
     for section in sections:
         destination = output / section.filename
-        if destination.resolve() == source.resolve() or destination.exists():
+        if destination.resolve() == source.resolve() or destination.exists() or destination.is_symlink():
             raise ValueError(f'File đã tồn tại hoặc trùng PDF gốc: {destination}')
     output.mkdir(parents=True, exist_ok=True)
     for section in sections:

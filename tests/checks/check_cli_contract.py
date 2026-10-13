@@ -131,6 +131,18 @@ class ExitCodesAndStreams(unittest.TestCase):
         self.assertTrue(second.stderr.startswith("Lỗi:"), second.stderr)
         self.assertEqual(tree(out), snapshot)
 
+    def test_an_output_that_is_a_dangling_link_exits_one_with_a_vietnamese_message(self):
+        link, nowhere = self.root / "out", self.root / "nowhere"
+        try:
+            link.symlink_to(nowhere)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"symlinks are not available here: {error}")
+        result = run(self.pdf, "--toc-file", self.toc, "--output", link)
+        self.assertEqual(result.returncode, 1)
+        self.assertTrue(result.stderr.startswith("Lỗi: File đã tồn tại"), result.stderr)
+        self.assertNotIn("Errno", result.stderr)
+        self.assertFalse(nowhere.exists())  # nothing was created through the link
+
     def test_errors_exit_one_with_the_message_on_stderr_only(self):
         cases = [
             ("missing pdf", [self.root / "nope.pdf", "--dry-run"]),

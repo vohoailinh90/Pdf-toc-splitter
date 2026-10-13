@@ -103,6 +103,38 @@ class NeverOverwrites(unittest.TestCase):
                 split(self.reader, self.sections, out, self.source)
         self.assertEqual(target.read_bytes(), b"precious")
 
+    def symlink(self, link, target):
+        try:
+            link.symlink_to(target)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"symlinks are not available here: {error}")
+
+    def test_a_dangling_symlink_at_a_destination_blocks_the_whole_run_before_any_write(self):
+        """exists() follows a link, so a dangling one used to pass the validation: the first
+        section was written, and only then did the exclusive open refuse the second."""
+        out = self.root / "out"
+        out.mkdir()
+        nowhere = self.root / "nowhere.pdf"
+        link = out / self.sections[1].filename
+        self.symlink(link, nowhere)
+        with self.assertRaises(ValueError):
+            split(self.reader, self.sections, out, self.source)
+        self.assertEqual(sorted(p.name for p in out.iterdir()), [link.name])  # no other section was written
+        self.assertTrue(link.is_symlink())
+        self.assertFalse(nowhere.exists())  # nothing was created through the link
+
+    def test_a_symlink_to_an_existing_file_is_never_written_through(self):
+        out = self.root / "out"
+        out.mkdir()
+        precious = self.root / "precious.pdf"
+        precious.write_bytes(b"precious")
+        link = out / self.sections[0].filename
+        self.symlink(link, precious)
+        with self.assertRaises(ValueError):
+            split(self.reader, self.sections, out, self.source)
+        self.assertEqual(precious.read_bytes(), b"precious")
+        self.assertEqual(sorted(p.name for p in out.iterdir()), [link.name])
+
     def test_the_source_pdf_cannot_be_an_output_destination(self):
         before = sha256(self.source)
         clash = plan([Entry("source", 1)], 6)
