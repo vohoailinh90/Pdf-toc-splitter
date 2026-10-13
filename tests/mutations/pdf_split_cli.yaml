@@ -39,3 +39,7 @@ mutations:
   find: "if args.ask_password else ''"
   replace: "if True else ''"
   test: tests.checks.check_cli_contract.EncryptedPdf.test_without_the_flag_it_never_prompts_and_tells_the_user_what_to_do
+- label: output that cannot be encoded aborts the run again
+  find: "reconfigure(errors='replace')"
+  replace: "reconfigure(errors='strict')"
+  test: tests.checks.check_cli_contract.ExitCodesAndStreams.test_a_stream_that_cannot_encode_vietnamese_degrades_instead_of_aborting

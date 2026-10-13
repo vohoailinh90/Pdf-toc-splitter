@@ -6,6 +6,7 @@ password can only ever come from a prompt are all computable.
 """
 import ast
 import importlib
+import os
 import re
 import subprocess
 import sys
@@ -26,9 +27,10 @@ SECRET_WORDS = ("password", "passwd", "secret", "token", "apikey", "api-key")
 ALLOWED_SECRET_FLAGS = {"--ask-password"}
 
 
-def run(*args, cwd=ROOT):
+def run(*args, cwd=ROOT, env=None):
     return subprocess.run([sys.executable, "-m", "pdf_toc_splitter", *map(str, args)],
-                          capture_output=True, text=True, encoding="utf-8", cwd=cwd, timeout=60)
+                          capture_output=True, text=True, encoding="utf-8", cwd=cwd, timeout=60,
+                          env={**os.environ, **env} if env else None)
 
 
 def help_text():
@@ -146,6 +148,20 @@ class ExitCodesAndStreams(unittest.TestCase):
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
                 self.assertTrue(result.stderr.startswith("Lỗi:"), result.stderr)
                 self.assertEqual(result.stdout, "")
+
+    def test_a_stream_that_cannot_encode_vietnamese_degrades_instead_of_aborting(self):
+        # ascii stands for any code page that lacks the letters: output redirected on Windows.
+        env = {"PYTHONIOENCODING": "ascii:strict"}
+        out = self.root / "out"
+        dry = run(self.pdf, "--toc-file", self.toc, "--dry-run", "--output", out, env=env)
+        self.assertEqual((dry.returncode, dry.stderr), (0, ""), dry.stderr)
+        self.assertEqual(len(dry.stdout.splitlines()), 2)
+        real = run(self.pdf, "--toc-file", self.toc, "--output", out, env=env)
+        self.assertEqual((real.returncode, real.stderr), (0, ""), real.stderr)
+        self.assertEqual(sorted(p.name for p in out.iterdir()), ["Mở đầu.pdf", "Nội dung.pdf"])
+        again = run(self.pdf, "--toc-file", self.toc, "--output", out, env=env)
+        self.assertEqual(again.returncode, 1)
+        self.assertNotIn("Traceback", again.stderr)
 
     def test_the_toc_sources_are_mutually_exclusive(self):
         self.assertEqual(run(self.pdf, "--toc-file", self.toc, "--toc-pages", "1").returncode, 2)
