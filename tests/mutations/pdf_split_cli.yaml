@@ -8,8 +8,8 @@ note: The exit codes, the stream a message goes to, the dry-run promise and the 
   password never leaves the prompt.
 mutations:
 - label: an error exits 0
-  find: "        return 1"
-  replace: "        return 0"
+  find: "print(f'Lỗi: {error}', file=sys.stderr)\n        return 1"
+  replace: "print(f'Lỗi: {error}', file=sys.stderr)\n        return 0"
   test: tests.checks.check_cli_contract.ExitCodesAndStreams.test_errors_exit_one_with_the_message_on_stderr_only
 - label: an error message goes to stdout
   find: "print(f'Lỗi: {error}', file=sys.stderr)"
@@ -55,3 +55,7 @@ mutations:
   find: "for i in range(start-1, end))"
   replace: "for i in range(start-1, end-1))"
   test: tests.checks.check_cli_contract.TocReadFromPdfPages.test_a_clean_toc_page_range_exports_the_exact_pages
+- label: an existing path met while writing is reported as a raw errno message again
+  find: "except FileExistsError as error:"
+  replace: "except KeyError as error:"
+  test: tests.checks.check_cli_contract.ExitCodesAndStreams.test_an_output_that_is_a_dangling_link_exits_one_with_a_vietnamese_message

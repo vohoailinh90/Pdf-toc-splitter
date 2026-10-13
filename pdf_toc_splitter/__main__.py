@@ -65,6 +65,9 @@ def main():
             split(reader, sections, args.output, args.pdf)
             print(f'Đã tạo {len(sections)} file trong {args.output}')
         return 0
+    except FileExistsError as error:
+        print(f'Lỗi: File đã tồn tại hoặc trùng PDF gốc: {error.filename or error}', file=sys.stderr)
+        return 1
     except Exception as error:
         print(f'Lỗi: {error}', file=sys.stderr)
         return 1
