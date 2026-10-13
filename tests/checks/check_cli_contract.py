@@ -176,7 +176,11 @@ class ExitCodesAndStreams(unittest.TestCase):
         self.assertNotIn("Traceback", again.stderr)
 
     def test_the_toc_sources_are_mutually_exclusive(self):
-        self.assertEqual(run(self.pdf, "--toc-file", self.toc, "--toc-pages", "1").returncode, 2)
+        # --dry-run and a temp --output: if the exclusivity ever breaks, the command must not
+        # fall through to a real run that writes split-output/ into the repository.
+        result = run(self.pdf, "--toc-file", self.toc, "--toc-pages", "1", "--dry-run", "--output", self.root / "out")
+        self.assertEqual(result.returncode, 2)
+        self.assertFalse((self.root / "out").exists())
 
     def test_bookmarks_are_the_default_source(self):
         result = run(self.pdf, "--dry-run")
